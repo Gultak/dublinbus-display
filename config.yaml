@@ -15,6 +15,9 @@ update-interval-seconds: 62
 # Start a HTTP server emitting the current data as JSON or HTTP.
 http-server: false
 
+# The font to use for the display.
+font-file: "jd_lcd_rounded.ttf"
+
 stops: [
   {
     # Route 15A

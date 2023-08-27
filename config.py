@@ -32,6 +32,10 @@ class Config:
         return self.config.get("http-server")
 
     @property
+    def font_file(self) -> str:
+        return self.config.get("font-file")
+
+    @property
     def stop_codes(self) -> list[str]:
         return [str(s["stop_id"]) for s in self.config.get("stops")]
 
