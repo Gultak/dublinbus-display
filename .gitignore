@@ -7,5 +7,6 @@ Enclosure/*.stl
 example*
 google_transit_combined*
 jd_lcd_rounded.ttf
+jd-lcd-rounded.ttf
 GTFS_Realtime.zip
 config.yaml
