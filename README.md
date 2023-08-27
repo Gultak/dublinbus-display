@@ -6,7 +6,7 @@ Emulates a Dublin Bus electronic sign, showing ETAs for different bus lines
 1. (optional) Configure the Raspberry Pi to use the non-standard display.
 1. Install all dependencies.
 1. Download the TTF font into the program's directory.
-1. Change main.py, updating STOPS to reflect the stop(s) you want to watch.
+1. Change config.yaml, updating STOPS to reflect the stop(s) you want to watch.
 1. Run main.py
 
 
