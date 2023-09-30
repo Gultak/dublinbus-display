@@ -170,7 +170,7 @@ def main():
         update_interval_seconds=config.update_interval_seconds,
     )
 
-    scheduler.start()
+    schedule.every(config.update_interval_seconds).seconds.do(scheduler.refresh)
 
     # Main event loop
     running = True
