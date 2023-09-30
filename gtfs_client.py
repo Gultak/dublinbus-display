@@ -11,7 +11,6 @@ import requests
 import sys
 import time
 import threading
-import traceback
 import zipfile
 
 class GTFSClient():
@@ -46,7 +45,6 @@ class GTFSClient():
         self._update_queue = update_queue
         if update_interval_seconds and update_queue: 
             self._update_interval_seconds = update_interval_seconds
-            self._refresh_thread = threading.Thread(target=lambda: every(update_interval_seconds, self.refresh))
 
     def _read_feed(self, path: gk.Path, dist_units: str, stop_codes: list[str]) -> gk.Feed:
         """
@@ -255,56 +253,57 @@ class GTFSClient():
 
     def __poll_gtfsr_deltas(self) -> list[map, set]:
 
-        # Poll GTFS-R API
-        if self.gtfs_r_api_key != "":
-            headers = {"x-api-key": self.gtfs_r_api_key}
-            response = requests.get(url = self.gtfs_r_url, headers = headers)
-            if response.status_code != 200:
-                print("GTFS-R sent non-OK response: {}\n{}".format(response.status_code, response.text))
-                return ({}, [], [])
+        try:
+            # Poll GTFS-R API
+            if self.gtfs_r_api_key != "":
+                headers = {"x-api-key": self.gtfs_r_api_key}
+                response = requests.get(url = self.gtfs_r_url, headers = headers)
+                if response.status_code != 200:
+                    print("GTFS-R sent non-OK response: {}\n{}".format(response.status_code, response.text))
+                    return ({}, [], [])
 
-            deltas_json = json.loads(response.text)
-        else:
-            deltas_json = json.load(open("example.json"))
+                deltas_json = json.loads(response.text)
+            else:
+                deltas_json = json.load(open("example.json"))
 
-        deltas = {}
-        canceled_trips = set()
-        added_stops = []
+            deltas = {}
+            canceled_trips = set()
+            added_stops = []
 
-        # Pre-compute some data to use for added trips:
-        relevant_service_ids = self.__current_service_ids()
-        relevant_trips = self.feed.trips[self.feed.trips["service_id"].isin(relevant_service_ids)]
-        relevant_route_ids = set(relevant_trips["route_id"])
-        today = datetime.date.today().strftime("%Y%m%d")
+            # Pre-compute some data to use for added trips:
+            relevant_service_ids = self.__current_service_ids()
+            relevant_trips = self.feed.trips[self.feed.trips["service_id"].isin(relevant_service_ids)]
+            relevant_route_ids = set(relevant_trips["route_id"])
+            today = datetime.date.today().strftime("%Y%m%d")
 
-        for e in deltas_json.get("entity", []):
-            is_deleted = e.get("is_deleted") or False
-            try:
-                trip_update = e.get("trip_update")
-                trip = trip_update.get("trip")
-                trip_id = trip.get("trip_id")
-                trip_action = trip.get("schedule_relationship")
-                if  trip_action == "SCHEDULED":
-                    for u in e.get("trip_update", {}).get("stop_time_update", []): 
-                        delay = u.get("arrival", u.get("departure", {})).get("delay", 0)
-                        deltas_for_trip = (deltas.get(trip_id) or {})
-                        deltas_for_trip[u.get("stop_id")] = delay
-                        deltas[trip_id] = deltas_for_trip
+            for e in deltas_json.get("entity", []):
+                is_deleted = e.get("is_deleted") or False
+                try:
+                    trip_update = e.get("trip_update")
+                    trip = trip_update.get("trip")
+                    trip_id = trip.get("trip_id")
+                    trip_action = trip.get("schedule_relationship")
+                    if  trip_action == "SCHEDULED":
+                        for u in e.get("trip_update", {}).get("stop_time_update", []): 
+                            delay = u.get("arrival", u.get("departure", {})).get("delay", 0)
+                            deltas_for_trip = (deltas.get(trip_id) or {})
+                            deltas_for_trip[u.get("stop_id")] = delay
+                            deltas[trip_id] = deltas_for_trip
 
-                elif trip_action == "ADDED":                    
-                    start_date = trip.get("start_date")
-                    start_time = trip.get("start_time")
-                    route_id = trip.get("route_id")
-                    direction_id = trip.get("direction_id")
-                    
-                    # Check if the route is part of the routes we care about
-                    if not route_id in relevant_route_ids:
-                        continue
+                    elif trip_action == "ADDED":                    
+                        start_date = trip.get("start_date")
+                        start_time = trip.get("start_time")
+                        route_id = trip.get("route_id")
+                        direction_id = trip.get("direction_id")
 
-                    # And that it's for today
-                    current_time = datetime.datetime.now().strftime("%H:%M:%S")
-                    if start_date > today or start_time > current_time:
-                        continue
+                        # Check if the route is part of the routes we care about
+                        if not route_id in relevant_route_ids:
+                            continue
+
+                        # And that it's for today
+                        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+                        if start_date > today or start_time > current_time:
+                            continue
 
                     # Look for the entry for any of the stops we want
                     wanted_stop_ids = self.__wanted_stop_ids()
@@ -324,15 +323,18 @@ class GTFSClient():
                             print("Added route:", new_arrival)
                             added_stops.append(new_arrival)
 
-                elif trip_action == "CANCELED":
-                    canceled_trips.add(trip_id)
-                else:
-                    print("Unsupported action:", trip_action)
-            except Exception as x:
-                print("Error parsing GTFS-R entry:", str(e))
-                raise(x)
-            
-        return deltas, canceled_trips, added_stops
+                    elif trip_action == "CANCELED":
+                        canceled_trips.add(trip_id)
+                    else:
+                        print("Unsupported action:", trip_action)
+                except Exception as x:
+                    print("Error parsing GTFS-R entry:", str(e))
+                    raise(x)
+                
+            return deltas, canceled_trips, added_stops
+        except Exception as e:
+            print("Polling for GTFS-R failed:", str(e))
+            return ({}, [], [])
 
 
     def get_next_n_buses(self, num_entries: int) -> pd.core.frame.DataFrame:
@@ -345,12 +347,6 @@ class GTFSClient():
         joined_data = self.__join_data(next_buses)
         self.__filter_routes_by_stops(joined_data)
         return joined_data
-
-
-    def start(self) -> None:
-        """ Start the refresh thread """
-        self._refresh_thread.start()
-        self.refresh()
 
 
     def refresh(self):
@@ -396,21 +392,3 @@ class GTFSClient():
             self._update_queue.put(arrivals)
 
         gc.collect()
-        return arrivals
-    
-
-def every(delay, task) -> None:
-    """ Auxilliary function to schedule updates. 
-        Taken from https://stackoverflow.com/questions/474528/what-is-the-best-way-to-repeatedly-execute-a-function-every-x-seconds
-    """
-    next_time = time.time() + delay
-    while True:
-        time.sleep(max(0, next_time - time.time()))
-        try:
-            task()
-        except Exception:
-            traceback.print_exc()
-            # in production code you might want to have this instead of course:
-            # logger.exception("Problem while executing repetitive task.")
-        # skip tasks if we are behind schedule:
-        next_time += (time.time() - next_time) // delay * delay + delay
