@@ -7,6 +7,7 @@ import gc
 from glob import glob
 import pygame
 from pygame.locals import *
+import schedule
 from time import sleep
 import queue
 from arrival_times import ArrivalTime
@@ -14,13 +15,13 @@ from gtfs_client import GTFSClient
 from arrivals_server import ArrivalsServer
 
 # Constants
-# The font is JD LCD Rounded by Jecko Development 
+# The font is JD LCD Rounded by Jecko Development
 # https://fontstruct.com/fontstructions/show/459792/jd_lcd_rounded
-TEXT_FONT = 'jd_lcd_rounded.ttf'
+TEXT_FONT = "jd_lcd_rounded.ttf"
 LINE_COUNT = 6
-COLOR_LCD_AMBER : pygame.Color = pygame.Color(0xf4, 0xcb, 0x60)
-COLOR_LCD_GREEN: pygame.Color = pygame.Color(0xb3, 0xff, 0x00)
-COLOR_LCD_RED: pygame.Color = pygame.Color(0xff, 0x3a, 0x4a)
+COLOR_LCD_AMBER: pygame.Color = pygame.Color(0xF4, 0xCB, 0x60)
+COLOR_LCD_GREEN: pygame.Color = pygame.Color(0xB3, 0xFF, 0x00)
+COLOR_LCD_RED: pygame.Color = pygame.Color(0xFF, 0x3A, 0x4A)
 
 COLOR_BACKGROUND = pygame.Color(0, 0, 0)
 UPDATE_INTERVAL_SECONDS = 62
@@ -30,24 +31,30 @@ TEXT_SIZE = 160  # Size of the font in pixels
 XOFFSET_ROUTE = 24
 XOFFSET_DESTINATION = 300
 XOFFSEET_TIME_LEFT = 1606
-INTER_LINE_SPACE = -15 
+INTER_LINE_SPACE = -15
 
 # Some global variables
-window : pygame.Surface = None
+window: pygame.Surface = None
 font: pygame.font.Font = None
 update_queue = queue.Queue(maxsize=10)
-arrivals : list[ArrivalTime] = []
+arrivals: list[ArrivalTime] = []
+
 
 def get_line_offset(line: int) -> int:
-    """ Calculate the Y offset within the display for a given text line """
+    """Calculate the Y offset within the display for a given text line"""
     global font
     return line * (font.get_height() + INTER_LINE_SPACE)
 
 
-def write_entry(line: int, 
-    route: str = '', destination: str = '', time_left: str = '', 
-    time_color: Color = COLOR_LCD_AMBER, text_color: Color = COLOR_LCD_AMBER):
-    """ Draws on the screen buffer an entry corresponding to an arrival time. """
+def write_entry(
+    line: int,
+    route: str = "",
+    destination: str = "",
+    time_left: str = "",
+    time_color: Color = COLOR_LCD_AMBER,
+    text_color: Color = COLOR_LCD_AMBER,
+):
+    """Draws on the screen buffer an entry corresponding to an arrival time."""
 
     # Step 1: Render the fragments
     route_img = font.render(route[0:4], True, text_color)
@@ -60,8 +67,9 @@ def write_entry(line: int,
     window.blit(destination_img, dest=(XOFFSET_DESTINATION, vertical_offset))
     window.blit(time_left_img, dest=(XOFFSEET_TIME_LEFT, vertical_offset))
 
+
 def write_line(line: int, text: str, text_color: Color = COLOR_LCD_AMBER):
-    """ Draws on the screen buffer an arbitrary text. """
+    """Draws on the screen buffer an arbitrary text."""
 
     # Step 1: Render the fragments
     text_img = font.render(text, True, text_color)
@@ -70,18 +78,23 @@ def write_line(line: int, text: str, text_color: Color = COLOR_LCD_AMBER):
     vertical_offset = get_line_offset(line)
     window.blit(text_img, dest=(XOFFSET_ROUTE, vertical_offset))
 
+
 def get_arrivals() -> list[ArrivalTime]:
-    """ Retrieves the current departures list. """
+    """Retrieves the current departures list."""
     return arrivals
 
+
 def update_screen(config: Config, updates: list[ArrivalTime]) -> None:
-    """ Repaint the screen with the new arrival times """
+    """Repaint the screen with the new arrival times"""
     global arrivals
     arrivals = updates
-    updates = updates[0:LINE_COUNT] # take the first X lines
+    updates = updates[0:LINE_COUNT]  # take the first X lines
+
     for line_num, update in enumerate(updates):
         # Find what color we need to use for the ETA
-        time_to_walk = update.due_in_minutes - (config.minutes_to_stop(update.stop_id) or 0)
+        time_to_walk = update.due_in_minutes - (
+            config.minutes_to_stop(update.stop_id) or 0
+        )
         lcd_color = None
         if time_to_walk > 5:
             lcd_color = COLOR_LCD_GREEN
@@ -92,25 +105,31 @@ def update_screen(config: Config, updates: list[ArrivalTime]) -> None:
 
         # Draw the line
         write_entry(
-            line = line_num,
-            route = update.route_id,
-            destination = update.destination,
-            time_left = 'Due' if update.isDue() else  update.due_in_str(),
-            time_color = lcd_color,
-            text_color = COLOR_LCD_GREEN if update.is_added else COLOR_LCD_AMBER
+            line=line_num,
+            route=update.route_id,
+            destination=update.destination,
+            time_left="Due" if update.isDue() else update.due_in_str(),
+            time_color=lcd_color,
+            text_color=COLOR_LCD_GREEN if update.is_added else COLOR_LCD_AMBER,
         )
 
     # Add the current time to the bottom line
     datetime_text = "Current time: " + datetime.today().strftime("%d/%m/%Y %H:%M")
     write_line(5, datetime_text)
 
+
 def clear_screen() -> None:
-    """ Clear screen """
-    pygame.draw.rect(surface=window, color=COLOR_BACKGROUND, width=0, rect=(0, 0, window.get_width(), window.get_height()))
+    """Clear screen"""
+    pygame.draw.rect(
+        surface=window,
+        color=COLOR_BACKGROUND,
+        width=0,
+        rect=(0, 0, window.get_width(), window.get_height()),
+    )
 
 
 def init_screen() -> pygame.Surface:
-    """ Create a Surface to draw on, with the given size, using either X11/Wayland (desktop) or directfb (no desktop) """
+    """Create a Surface to draw on, with the given size, using either X11/Wayland (desktop) or directfb (no desktop)"""
     pygame.display.init()
     window = pygame.display.set_mode((0, 0))
     pygame.mouse.set_visible(False)
@@ -118,12 +137,12 @@ def init_screen() -> pygame.Surface:
 
 
 def main():
-    """ Main function """
+    """Main function"""
 
     global font
     global window
     global update_queue
-    
+
     config = Config()
 
     # Initialise graphics context
@@ -141,19 +160,17 @@ def main():
     pygame.display.flip()
 
     # Create scheduler; load time tables
-    scheduler = GTFSClient(feed_url=config.gtfs_feed_url,
-                           gtfs_r_url=config.gtfs_api_url,
-                           gtfs_r_api_key=config.gtfs_api_key,
-                           stop_codes=config.stop_codes, 
-                           routes_for_stops=config.routes_for_stops(),
-                           update_queue=update_queue, 
-                           update_interval_seconds=config.update_interval_seconds)
-    scheduler.start()
+    scheduler = GTFSClient(
+        feed_url=config.gtfs_feed_url,
+        gtfs_r_url=config.gtfs_api_url,
+        gtfs_r_api_key=config.gtfs_api_key,
+        stop_codes=config.stop_codes,
+        routes_for_stops=config.routes_for_stops(),
+        update_queue=update_queue,
+        update_interval_seconds=config.update_interval_seconds,
+    )
 
-    # Start HTTP server
-    if config.http_server:
-      server = ArrivalsServer(get_arrivals=get_arrivals)
-      server.start()
+    scheduler.start()
 
     # Main event loop
     running = True
@@ -170,6 +187,7 @@ def main():
         # Pygame event handling ends
 
         # Display update begins
+        schedule.run_pending()
         if update_queue.qsize() > 0:
             clear_screen()
             updates = update_queue.get()
@@ -179,7 +197,7 @@ def main():
             gc.collect()
         # Display update ends
 
-        sleep(0.2) 
+        sleep(0.2)
     pygame.quit()
     exit(0)
 
